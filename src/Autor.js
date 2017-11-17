@@ -2,6 +2,8 @@ import React, { Component } from 'react';
 import $ from 'jquery';
 import InputCustomizado from './componentes/InputCustomizado';
 import SubmitCustomizado from './componentes/SubmitCustomizado';
+import PubSub from 'pubsub-js';
+import TratadorErros from './TratadorErros';
 
 export default class AutorBox extends Component {
 
@@ -10,31 +12,30 @@ export default class AutorBox extends Component {
     this.state = {
       lista: [],
     }
-    this.atualizaListagem = this.atualizaListagem.bind(this);
-  }
+  };
 
   componentDidMount() {
     $.ajax({
       url: 'http://localhost:8080/api/autores',
       dataType: 'json',
-      success:function(resposta){
-        this.setState({
-          lista: resposta
-        })
-      }.bind(this)
-    });
-  }
-
-  atualizaListagem(novaLista) {
-    this.setState({
-      lista: novaLista
+      success: function(resposta){
+        this.setState({ lista: resposta })
+      }.bind(this),
+      error: function(erro) {
+        console.log('Houve um erro na resposta do servidor', erro);
+      }
     })
+
+    PubSub.subscribe('atualiza-lista-autores', function(topico, novaLista) {
+      this.setState({ lista: novaLista });
+    }.bind(this));
+
   }
 
   render() {
     return(
       <div>
-        <FormularioAutor callbackAtualizaListagem={ this.atualizaListagem } />
+        <FormularioAutor />
         <TabelaAutores lista={ this.state.lista } />
       </div>
     );
@@ -65,15 +66,22 @@ class FormularioAutor extends Component {
       dataType:'json',
       type:'post',
       data: JSON.stringify({
-          nome:this.state.nome,
-          email:this.state.email,
-          senha:this.state.senha
+          nome: this.state.nome,
+          email: this.state.email,
+          senha: this.state.senha
       }),
-      success: function(resposta){
-        this.props.callbackAtualizaListagem(resposta);
+      beforeSend: function() {
+        PubSub.publish('limpa-erros', {});
+      },
+      success: function(novaListagem){
+        // dispara um aviso geral de novaListagem disponivel
+        PubSub.publish('atualiza-lista-autores', novaListagem);
+        this.setState({ nome: '', email: '', senha: ''});
       }.bind(this),
-      error: function(resposta){
-        console.log("erro");
+      error: function(erro){
+        if(erro.status === 400) {
+          new TratadorErros().publicaErros(erro.responseJSON);
+        }
       }
     });
   }
